@@ -4,6 +4,7 @@ This module only orchestrates and renders: all analysis logic lives in
 the modules under :mod:`repohealth.core`.
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -21,6 +22,7 @@ from repohealth.core.complexity import (
     rank_for,
     repository_average_complexity,
 )
+from repohealth.core.history import FileChurn, HistoryReport, analyze_history
 from repohealth.core.repo_scanner import NotAGitRepositoryError, RepoReport, scan_repository
 
 app = typer.Typer(
@@ -141,6 +143,174 @@ def complexity(
             f"'{threshold}' (threshold exceeded)[/red]"
         )
         raise typer.Exit(code=2)
+
+
+def _parse_since(value: str | None) -> datetime | None:
+    """Parse a ``--since`` value as YYYY-MM-DD, exiting with an error if invalid."""
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        error_console.print(
+            f"[bold red]Error:[/bold red] [red]Invalid --since date '{escape(value)}': "
+            "expected format YYYY-MM-DD[/red]"
+        )
+        raise typer.Exit(code=1) from None
+
+
+def _analyze_history_or_exit(
+    path: Path, since: str | None, max_commits: int | None
+) -> HistoryReport:
+    """Run the history analysis, translating known failures into exit codes."""
+    try:
+        return analyze_history(path, since=_parse_since(since), max_commits=max_commits)
+    except NotAGitRepositoryError as exc:
+        error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1) from exc
+
+
+def _exit_if_no_history(report: HistoryReport) -> None:
+    """Exit successfully with a notice when there are no commits to analyze."""
+    if report.analyzed_commit_count == 0:
+        console.print("[yellow]no history to analyze[/yellow]")
+        raise typer.Exit()
+
+
+_SINCE_OPTION = typer.Option(
+    "--since", help="Only analyze commits from this date onwards (YYYY-MM-DD)."
+)
+_MAX_COMMITS_OPTION = typer.Option("--max-commits", help="Only analyze the N most recent commits.")
+
+
+@app.command()
+def hotspots(
+    path: Annotated[
+        Path,
+        typer.Argument(help="Path to a local Git repository."),
+    ] = Path("."),
+    top: Annotated[
+        int,
+        typer.Option("--top", help="Show only the N most changed files."),
+    ] = 10,
+    show_all: Annotated[
+        bool,
+        typer.Option("--all", help="Show all files, ignoring --top."),
+    ] = False,
+    since: Annotated[str | None, _SINCE_OPTION] = None,
+    max_commits: Annotated[int | None, _MAX_COMMITS_OPTION] = None,
+) -> None:
+    """Show the files most frequently changed across the Git history."""
+    report = _analyze_history_or_exit(path, since, max_commits)
+    _exit_if_no_history(report)
+    shown = report.hotspots if show_all else report.hotspots[:top]
+    _render_hotspots_report(report, shown)
+
+
+@app.command()
+def busfactor(
+    path: Annotated[
+        Path,
+        typer.Argument(help="Path to a local Git repository."),
+    ] = Path("."),
+    since: Annotated[str | None, _SINCE_OPTION] = None,
+    max_commits: Annotated[int | None, _MAX_COMMITS_OPTION] = None,
+) -> None:
+    """Show the bus factor: the fewest authors covering half of all changes."""
+    report = _analyze_history_or_exit(path, since, max_commits)
+    _exit_if_no_history(report)
+    _render_busfactor_report(report)
+
+
+def _print_repo_header(repo_path: Path) -> None:
+    """Print the standard repohealth panel identifying the repository."""
+    header = f"[bold cyan]{escape(repo_path.name)}[/bold cyan]\n[dim]{escape(str(repo_path))}[/dim]"
+    console.print(Panel.fit(header, title="repohealth", border_style="cyan"))
+
+
+def _churn_style(change_count: int, max_change_count: int) -> str:
+    """Style for a change count relative to the repository's hottest file."""
+    if change_count >= 0.75 * max_change_count:
+        return "bold red"
+    if change_count >= 0.4 * max_change_count:
+        return "yellow"
+    return "green"
+
+
+def _render_hotspots_report(report: HistoryReport, shown: tuple[FileChurn, ...]) -> None:
+    """Render the hotspots report as a Rich panel, table and summary line."""
+    _print_repo_header(report.repo_path)
+
+    table = Table(title="Most frequently changed files")
+    table.add_column("File", style="bold")
+    table.add_column("Changes", justify="right")
+    table.add_column("Authors", justify="right")
+    table.add_column("Last modified", justify="right")
+    max_change_count = report.hotspots[0].change_count if report.hotspots else 0
+    for churn in shown:
+        style = _churn_style(churn.change_count, max_change_count)
+        table.add_row(
+            churn.path.as_posix(),
+            f"[{style}]{churn.change_count:,}[/{style}]",
+            f"{churn.author_count:,}",
+            churn.last_modified.strftime("%Y-%m-%d"),
+        )
+    console.print(table)
+
+    summary = f"Analyzed [bold]{report.analyzed_commit_count:,}[/bold] commit(s)"
+    if report.hotspots:
+        hottest = report.hotspots[0]
+        summary += (
+            f", hottest file: [bold]{escape(hottest.path.as_posix())}[/bold] "
+            f"({hottest.change_count:,} change(s))"
+        )
+    console.print(summary)
+
+
+def _bus_factor_style(bus_factor: int) -> str:
+    """Style for the bus factor panel: lower is riskier."""
+    if bus_factor <= 1:
+        return "red"
+    if bus_factor == 2:
+        return "yellow"
+    return "green"
+
+
+def _render_busfactor_report(report: HistoryReport) -> None:
+    """Render the bus factor report as Rich panels, a table and a summary line."""
+    _print_repo_header(report.repo_path)
+
+    style = _bus_factor_style(report.bus_factor)
+    console.print(
+        Panel.fit(
+            f"[bold {style}]Bus factor: {report.bus_factor}[/bold {style}]",
+            border_style=style,
+        )
+    )
+    if report.bus_factor == 1:
+        console.print("[bold red]Warning: knowledge concentrated in a single author[/bold red]")
+
+    table = Table(title="Authors covering 50% of all file changes")
+    table.add_column("Author", style="bold")
+    table.add_column("Changes", justify="right")
+    table.add_column("% of total", justify="right")
+    table.add_column("Cumulative %", justify="right")
+    cumulative = 0
+    for name, count in report.author_totals[: report.bus_factor]:
+        cumulative += count
+        table.add_row(
+            escape(name),
+            f"{count:,}",
+            f"{100 * count / report.total_changes:.1f}%",
+            f"{100 * cumulative / report.total_changes:.1f}%",
+        )
+    console.print(table)
+
+    console.print(
+        f"Analyzed [bold]{report.analyzed_commit_count:,}[/bold] commit(s) with "
+        f"[bold]{report.total_changes:,}[/bold] file change(s) by "
+        f"[bold]{len(report.author_totals):,}[/bold] author(s)"
+    )
 
 
 def _render_complexity_report(report: ComplexityReport, shown: tuple[FileComplexity, ...]) -> None:
