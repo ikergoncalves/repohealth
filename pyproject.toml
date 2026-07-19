@@ -1,0 +1,52 @@
+[project]
+name = "repohealth"
+version = "0.1.0"
+description = "CLI tool that analyzes any Git repository's health"
+authors = [{ name = "ikergoncalves", email = "ikercurso@gmail.com" }]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "gitpython>=3.1.40",
+]
+
+[project.scripts]
+repohealth = "repohealth.cli:app"
+
+[tool.poetry]
+packages = [{ include = "repohealth", from = "src" }]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+ruff = ">=0.8"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option", "pathlib.Path"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["repohealth"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
