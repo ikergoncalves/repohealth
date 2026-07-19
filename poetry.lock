@@ -91,6 +91,22 @@ files = [
 ]
 
 [[package]]
+name = "lizard"
+version = "1.23.0"
+description = "A code analyzer without caring the C/C++ header files. It works with Java, C/C++, JavaScript, Python, Ruby, Swift, Objective C. Metrics includes cyclomatic complexity number etc."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "lizard-1.23.0-py2.py3-none-any.whl", hash = "sha256:e9111e35c8a5f2e00d55cab318fca3504622991417411ea16cf46874fb752f42"},
+    {file = "lizard-1.23.0.tar.gz", hash = "sha256:ed75cd45f086a2f51d6be64b0149b71bda820f92f95e30898254528bb949f795"},
+]
+
+[package.dependencies]
+pathspec = "*"
+pygments = "*"
+
+[[package]]
 name = "mando"
 version = "0.7.1"
 description = "Create Python CLI apps with little to no effort at all!"
@@ -157,6 +173,23 @@ files = [
 ]
 
 [[package]]
+name = "pathspec"
+version = "1.1.1"
+description = "Utility library for gitignore style pattern matching of file paths."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189"},
+    {file = "pathspec-1.1.1.tar.gz", hash = "sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a"},
+]
+
+[package.extras]
+hyperscan = ["hyperscan (>=0.7)"]
+optional = ["typing-extensions (>=4)"]
+re2 = ["google-re2 (>=1.1)"]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 description = "plugin and hook calling mechanisms for python"
@@ -171,6 +204,23 @@ files = [
 [package.extras]
 dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
+
+[[package]]
+name = "pydriller"
+version = "2.10"
+description = "Framework for MSR"
+optional = false
+python-versions = ">=3.5"
+groups = ["main"]
+files = [
+    {file = "pydriller-2.10-py3-none-any.whl", hash = "sha256:1e9df1c3af131ab4eb1cfa829b81eecfed70fd6f05ae8bbc6b04a678a88f9f0f"},
+]
+
+[package.dependencies]
+gitpython = "*"
+lizard = "*"
+pytz = "*"
+types-pytz = "*"
 
 [[package]]
 name = "pygments"
@@ -210,6 +260,18 @@ tomli = {version = ">=1", markers = "python_version < \"3.11\""}
 
 [package.extras]
 dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "requests", "setuptools", "xmlschema"]
+
+[[package]]
+name = "pytz"
+version = "2026.2"
+description = "World timezone definitions, modern and historical"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pytz-2026.2-py2.py3-none-any.whl", hash = "sha256:04156e608bee23d3792fd45c94ae47fae1036688e75032eea2e3bf0323d1f126"},
+    {file = "pytz-2026.2.tar.gz", hash = "sha256:0e60b47b29f21574376f218fe21abc009894a2321ea16c6754f3cad6eb7cdd6a"},
+]
 
 [[package]]
 name = "radon"
@@ -390,6 +452,18 @@ rich = ">=13.8.0"
 shellingham = ">=1.3.0"
 
 [[package]]
+name = "types-pytz"
+version = "2026.2.0.20260518"
+description = "Typing stubs for pytz"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "types_pytz-2026.2.0.20260518-py3-none-any.whl", hash = "sha256:3a12eaa38f476bd650902a9c9bb442f03f3c7dee2be5c5848bce61bd708d205a"},
+    {file = "types_pytz-2026.2.0.20260518.tar.gz", hash = "sha256:e5d254329e9c4e91f0781b22c43a4bb2d10bb044d97b24c4b05d45567b0eae16"},
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.16.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -405,4 +479,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "7c87e5bbd36061def8b5feb48d843165023fe0677b60e076d22295c94673108b"
+content-hash = "97f706f5a90eedc7d271f52bc86dd2a2247ab658a99ce3a713a18299c1350bc8"
