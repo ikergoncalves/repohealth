@@ -140,3 +140,53 @@ test file exists, not that the code is actually executed by tests. It
 points out structural gaps and does not replace real coverage
 measurement (e.g. [pytest-cov](https://pytest-cov.readthedocs.io/)).
 The command always exits with code 0 when the analysis runs.
+
+### `repohealth report [PATH]`
+
+Runs all four analyses and consolidates them into a single **health
+score** from 0 to 100 with a letter grade (A–F). The score is a
+weighted sum of four components:
+
+| Component  | Weight | What it measures                                    |
+| ---------- | -----: | --------------------------------------------------- |
+| Complexity |    30% | Share of Python files ranked A or B                 |
+| Coverage   |    25% | Share of source files with a matching test file     |
+| Bus factor |    20% | Knowledge concentration (bus factor 1 is riskiest)  |
+| Churn risk |    25% | Share of hot files that are **not** also complex    |
+
+The report also lists the **risk files**: files that are at the same
+time *hot* (changed at least half as often as the most-changed Python
+file) and *complex* (rank C or worse). Churn and complexity are each
+manageable on their own — their intersection is where refactoring pays
+off the most, and that is the metric the other commands cannot show
+individually.
+
+```bash
+# Rich summary in the terminal
+poetry run repohealth report
+
+# Full report as JSON, Markdown or HTML (raw content on stdout)
+poetry run repohealth report --format json
+poetry run repohealth report --format markdown
+
+# Write a self-contained HTML page to a file
+poetry run repohealth report --format html --output report.html
+```
+
+Options:
+
+- `--format terminal|json|markdown|html` — output format (default:
+  `terminal`). The non-terminal formats print raw content to stdout so
+  they can be piped or redirected.
+- `--output FILE` — write the report to a file instead of stdout
+  (`json`/`markdown`/`html` only; the `terminal` format cannot be
+  written to a file and exits with code 1).
+- `--since YYYY-MM-DD` / `--max-commits N` — passed through to the
+  history analysis.
+- `--min-score N` — exit with code **2** when the health score is below
+  `N` (0–100). This makes `report` usable as a CI quality gate:
+
+  ```bash
+  # Fail the pipeline when the repository health drops below 70
+  poetry run repohealth report . --min-score 70
+  ```
