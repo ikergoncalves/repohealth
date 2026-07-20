@@ -21,6 +21,9 @@ env/
 .coverage
 htmlcov/
 
+# Generated reports
+report.html
+
 # Editors / OS
 .idea/
 .vscode/

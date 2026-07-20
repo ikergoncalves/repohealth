@@ -5,6 +5,7 @@ the modules under :mod:`repohealth.core`.
 """
 
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Annotated
 
@@ -27,6 +28,8 @@ from repohealth.core.coverage_gaps import (
     SourceFileStatus,
     find_coverage_gaps,
 )
+from repohealth.core.exporters import to_html, to_json, to_markdown
+from repohealth.core.health import HealthReport, build_health_report
 from repohealth.core.history import FileChurn, HistoryReport, analyze_history
 from repohealth.core.repo_scanner import NotAGitRepositoryError, RepoReport, scan_repository
 
@@ -255,6 +258,133 @@ def untested(
 
     shown = report.files if show_all else tuple(f for f in report.files if not f.has_test)
     _render_untested_report(report, shown)
+
+
+class ReportFormat(str, Enum):
+    """Output formats supported by the ``report`` command."""
+
+    terminal = "terminal"
+    json = "json"
+    markdown = "markdown"
+    html = "html"
+
+
+_EXPORTERS = {
+    ReportFormat.json: to_json,
+    ReportFormat.markdown: to_markdown,
+    ReportFormat.html: to_html,
+}
+
+
+@app.command()
+def report(
+    path: Annotated[
+        Path,
+        typer.Argument(help="Path to a local Git repository."),
+    ] = Path("."),
+    output_format: Annotated[
+        ReportFormat,
+        typer.Option("--format", help="Output format for the report."),
+    ] = ReportFormat.terminal,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Write the report to this file instead of stdout."),
+    ] = None,
+    since: Annotated[str | None, _SINCE_OPTION] = None,
+    max_commits: Annotated[int | None, _MAX_COMMITS_OPTION] = None,
+    min_score: Annotated[
+        float | None,
+        typer.Option(
+            "--min-score",
+            min=0,
+            max=100,
+            help="Exit with code 2 if the health score is below this value (CI gate).",
+        ),
+    ] = None,
+) -> None:
+    """Build the consolidated health report with a weighted 0-100 score."""
+    if output_format is ReportFormat.terminal and output is not None:
+        error_console.print(
+            "[bold red]Error:[/bold red] [red]terminal format cannot be written to a file[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    parsed_since = _parse_since(since)
+    try:
+        health = build_health_report(path, since=parsed_since, max_commits=max_commits)
+    except NotAGitRepositoryError as exc:
+        error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if output_format is ReportFormat.terminal:
+        _render_health_report(health)
+    else:
+        content = _EXPORTERS[output_format](health)
+        if output is None:
+            print(content, end="")
+        else:
+            output.write_text(content, encoding="utf-8")
+            console.print(f"[green]Report written to {escape(str(output))}[/green]")
+
+    if min_score is not None and health.score < min_score:
+        error_console.print(
+            f"[bold red]Health score {health.score:.1f} is below the required "
+            f"minimum {min_score:.1f}[/bold red]"
+        )
+        raise typer.Exit(code=2)
+
+
+def _grade_style(grade: str) -> str:
+    """Color for a health grade: A/B green, C yellow, D orange, E/F red."""
+    return {"A": "green", "B": "green", "C": "yellow", "D": "dark_orange"}.get(grade, "red")
+
+
+def _render_health_report(report: HealthReport) -> None:
+    """Render the health report as Rich panels and tables."""
+    _print_repo_header(report.repo_path)
+
+    style = _grade_style(report.grade)
+    console.print(
+        Panel.fit(
+            f"[bold {style}]{report.score:.1f} / 100[/bold {style}]\n"
+            f"[bold {style}]Grade {report.grade}[/bold {style}]",
+            title="Health score",
+            border_style=style,
+        )
+    )
+
+    table = Table(title="Health components")
+    table.add_column("Component", style="bold")
+    table.add_column("Score", justify="right")
+    table.add_column("Weight", justify="right")
+    table.add_column("Detail")
+    for component in report.components:
+        table.add_row(
+            component.name,
+            f"{component.score:.1f}",
+            f"{component.weight:.0%}",
+            component.detail,
+        )
+    console.print(table)
+
+    if report.risk_files:
+        risk_table = Table(title="Risk files (hot and complex)")
+        risk_table.add_column("File", style="bold")
+        risk_table.add_column("Changes", justify="right")
+        risk_table.add_column("Max CC", justify="right")
+        risk_table.add_column("Rank", justify="center")
+        for risk in report.risk_files:
+            risk_table.add_row(
+                risk.path.as_posix(),
+                f"{risk.change_count:,}",
+                f"{risk.max_complexity:,}",
+                _styled_rank(risk.rank),
+            )
+        console.print(risk_table)
+
+    console.print(
+        "Run [bold]repohealth report --format html --output report.html[/bold] for the full report"
+    )
 
 
 def _print_repo_header(repo_path: Path) -> None:
