@@ -22,6 +22,11 @@ from repohealth.core.complexity import (
     rank_for,
     repository_average_complexity,
 )
+from repohealth.core.coverage_gaps import (
+    CoverageGapReport,
+    SourceFileStatus,
+    find_coverage_gaps,
+)
 from repohealth.core.history import FileChurn, HistoryReport, analyze_history
 from repohealth.core.repo_scanner import NotAGitRepositoryError, RepoReport, scan_repository
 
@@ -222,6 +227,32 @@ def busfactor(
     _render_busfactor_report(report)
 
 
+@app.command()
+def untested(
+    path: Annotated[
+        Path,
+        typer.Argument(help="Path to a local Git repository."),
+    ] = Path("."),
+    show_all: Annotated[
+        bool,
+        typer.Option("--all", help="Also show the source files that have a matching test."),
+    ] = False,
+) -> None:
+    """Show tracked Python source files without a matching test file."""
+    try:
+        report = find_coverage_gaps(path)
+    except NotAGitRepositoryError as exc:
+        error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if report.source_file_count == 0:
+        console.print("[yellow]no Python source files to analyze[/yellow]")
+        raise typer.Exit()
+
+    shown = report.files if show_all else tuple(f for f in report.files if not f.has_test)
+    _render_untested_report(report, shown)
+
+
 def _print_repo_header(repo_path: Path) -> None:
     """Print the standard repohealth panel identifying the repository."""
     header = f"[bold cyan]{escape(repo_path.name)}[/bold cyan]\n[dim]{escape(str(repo_path))}[/dim]"
@@ -310,6 +341,51 @@ def _render_busfactor_report(report: HistoryReport) -> None:
         f"Analyzed [bold]{report.analyzed_commit_count:,}[/bold] commit(s) with "
         f"[bold]{report.total_changes:,}[/bold] file change(s) by "
         f"[bold]{len(report.author_totals):,}[/bold] author(s)"
+    )
+
+
+def _source_status_markup(status: SourceFileStatus) -> str:
+    """Rich markup for a source file's pairing status."""
+    if not status.has_test:
+        return "[red]missing[/red]"
+    if status.ambiguous:
+        return "[yellow]tested*[/yellow]"
+    return "[green]tested[/green]"
+
+
+def _coverage_style(ratio: float) -> str:
+    """Style for the coverage summary line: higher is healthier."""
+    if ratio >= 0.8:
+        return "green"
+    if ratio >= 0.5:
+        return "yellow"
+    return "red"
+
+
+def _render_untested_report(report: CoverageGapReport, shown: tuple[SourceFileStatus, ...]) -> None:
+    """Render the coverage gap report as a Rich panel, table and summary line."""
+    _print_repo_header(report.repo_path)
+
+    if shown:
+        table = Table(title="Source files and their matching tests")
+        table.add_column("Source file", style="bold")
+        table.add_column("Status", justify="center")
+        table.add_column("Matched test(s)")
+        for status in shown:
+            matched = ", ".join(test.as_posix() for test in status.matched_tests)
+            table.add_row(status.path.as_posix(), _source_status_markup(status), matched or "-")
+        console.print(table)
+
+    if any(status.ambiguous for status in shown):
+        console.print(
+            "[dim]* matched by file stem only: the test may belong to another "
+            "source file with the same name[/dim]"
+        )
+
+    style = _coverage_style(report.coverage_ratio)
+    console.print(
+        f"[{style}]{report.tested_count} of {report.source_file_count} source files "
+        f"have a matching test ({100 * report.coverage_ratio:.1f}%)[/{style}]"
     )
 
 
