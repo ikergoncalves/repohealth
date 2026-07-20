@@ -138,6 +138,10 @@ def complexity(
     files = report.files
     if threshold is not None:
         files = tuple(file for file in files if file.rank >= threshold)
+        if not files:
+            _print_repo_header(report.repo_path)
+            console.print(f"[green]No files at or worse than rank {threshold}[/green]")
+            return
     shown = files if show_all else files[:top]
 
     _render_complexity_report(report, shown)
