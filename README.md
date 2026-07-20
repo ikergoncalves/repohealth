@@ -1,33 +1,70 @@
 # repohealth
 
-CLI tool that analyzes any Git repository's health.
+**One command to see how healthy a Git repository really is.**
 
-![Status: early development](https://img.shields.io/badge/status-early%20development-orange)
+[![PyPI](https://img.shields.io/pypi/v/repohealth)](https://pypi.org/project/repohealth/)
+[![Python versions](https://img.shields.io/pypi/pyversions/repohealth)](https://pypi.org/project/repohealth/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/ikergoncalves/repohealth/ci.yml)](https://github.com/ikergoncalves/repohealth/actions)
 
-> **Note:** repohealth is in early development. Commands, output and APIs may
-> change at any time.
+![Demo: repohealth scanning a repository and printing its health report](docs/demo.gif)
 
-## Installation (development)
+## Why repohealth?
 
-Requires Python >= 3.10 and [Poetry](https://python-poetry.org/):
+Static analysis tells you how your code **is**; the Git history tells you
+how it **changes**. Each one alone misses half the picture: a complex file
+nobody touches is rarely a problem, and a frequently changed file that is
+simple is usually fine. repohealth crosses both to surface **risk files**
+— the ones that are hot *and* complex — alongside the bus factor of your
+team's knowledge and the source files that have no tests at all. It runs
+100% locally on any Git repository, with no server, no database and no
+configuration.
+
+## Features
+
+- **`report`** — consolidated 0-100 health score with letter grade, risk
+  files, and JSON/Markdown/HTML export; usable as a CI quality gate.
+- **`scan`** — tracked files grouped by language, with line counts.
+- **`complexity`** — cyclomatic complexity ranks (A-F) for every Python
+  file, with a threshold gate for CI.
+- **`hotspots`** — the files changed most often across the history.
+- **`busfactor`** — the fewest authors covering half of all changes.
+- **`untested`** — Python source files without a matching test file.
+
+## Installation
 
 ```bash
-git clone <repo-url>
-cd repohealth
-poetry install
+pipx install repohealth   # recommended for CLIs: isolated environment
+# or
+pip install repohealth
 ```
 
-## Usage
+Requires Python 3.10+ and Git.
 
-```bash
-# Scan the current directory (must be a Git repository)
-poetry run repohealth scan
+## Quick start
 
-# Scan a specific repository
-poetry run repohealth scan path/to/repo
+Point it at any local Git repository:
 
-# Show the installed version
-poetry run repohealth --version
+```console
+$ repohealth report .
+┌────── repohealth ──────┐
+│ repohealth             │
+│ E:\projetos\repohealth │
+└────────────────────────┘
+┌─ Health score ─┐
+│ 84.2 / 100     │
+│ Grade B        │
+└────────────────┘
+                            Health components
+┌────────────┬───────┬────────┬──────────────────────────────────────────┐
+│ Component  │ Score │ Weight │ Detail                                   │
+├────────────┼───────┼────────┼──────────────────────────────────────────┤
+│ Complexity │  94.1 │    30% │ 1 of 17 files rank C or worse            │
+│ Coverage   │ 100.0 │    25% │ 7 of 7 source files have a matching test │
+│ Bus factor │  30.0 │    20% │ bus factor 1                             │
+│ Churn risk │ 100.0 │    25% │ 0 of 1 hot files are also complex        │
+└────────────┴───────┴────────┴──────────────────────────────────────────┘
+Run repohealth report --format html --output report.html for the full report
 ```
 
 ## Commands
@@ -36,10 +73,10 @@ poetry run repohealth --version
 
 Lists the files tracked by Git, groups them by language and shows file
 counts, line counts and each language's share of the codebase. `PATH`
-defaults to the current directory.
+defaults to the current directory (as it does for every command).
 
 ```bash
-poetry run repohealth scan path/to/repo
+repohealth scan path/to/repo
 ```
 
 ### `repohealth complexity [PATH]`
@@ -47,22 +84,18 @@ poetry run repohealth scan path/to/repo
 Analyzes the cyclomatic complexity of every tracked Python file using
 [radon](https://radon.readthedocs.io/) and shows, per file, the number of
 functions, average and maximum complexity, and a rank from A (simple) to F
-(very complex). `PATH` defaults to the current directory.
-
-```bash
-poetry run repohealth complexity path/to/repo
-```
+(very complex).
 
 Options:
 
 - `--top N` — show only the N most complex files (default: 10).
 - `--all` — show all files, ignoring `--top`.
 - `--threshold RANK` — only list files ranked at or worse than `RANK`
-  (A–F). If any file matches, the command exits with code **2**, which
+  (A-F). If any file matches, the command exits with code **2**, which
   makes it easy to fail a CI job when complexity regresses:
 
   ```bash
-  poetry run repohealth complexity . --threshold C || echo "too complex!"
+  repohealth complexity . --threshold C || echo "too complex!"
   ```
 
 Python files that cannot be parsed (syntax errors, non-UTF-8 encoding) are
@@ -74,11 +107,7 @@ Mines the Git history with [PyDriller](https://pydriller.readthedocs.io/)
 and lists the files changed most often (churn), with the number of
 distinct authors and the date of the last change. Renames carry their
 history over to the new path, deleted files are excluded and merge
-commits are skipped. `PATH` defaults to the current directory.
-
-```bash
-poetry run repohealth hotspots path/to/repo
-```
+commits are skipped.
 
 Options:
 
@@ -92,28 +121,19 @@ Options:
 Computes the repository bus factor: the smallest number of authors who
 together account for at least 50% of all file changes in the history. A
 bus factor of 1 means the knowledge is concentrated in a single author
-and is highlighted as a risk. `PATH` defaults to the current directory.
-
-```bash
-poetry run repohealth busfactor path/to/repo
-```
+and is highlighted as a risk.
 
 Options:
 
 - `--since YYYY-MM-DD` — only analyze commits from this date onwards.
 - `--max-commits N` — only analyze the N most recent commits.
 
-Both commands print `no history to analyze` and exit successfully when
-the repository has no commits (or none match the filters).
+Both history commands print `no history to analyze` and exit successfully
+when the repository has no commits (or none match the filters).
 
 ### `repohealth untested [PATH]`
 
 Lists the tracked Python source files that have no matching test file.
-`PATH` defaults to the current directory.
-
-```bash
-poetry run repohealth untested path/to/repo
-```
 
 Options:
 
@@ -135,43 +155,11 @@ files share the same name (say, two `utils.py` in different packages), a
 single `test_utils.py` marks both as tested. Those matches are shown as
 `tested*` — the asterisk flags a possible false positive.
 
-This is a **static heuristic**: it only checks that a plausibly named
-test file exists, not that the code is actually executed by tests. It
-points out structural gaps and does not replace real coverage
-measurement (e.g. [pytest-cov](https://pytest-cov.readthedocs.io/)).
-The command always exits with code 0 when the analysis runs.
-
 ### `repohealth report [PATH]`
 
-Runs all four analyses and consolidates them into a single **health
-score** from 0 to 100 with a letter grade (A–F). The score is a
-weighted sum of four components:
-
-| Component  | Weight | What it measures                                    |
-| ---------- | -----: | --------------------------------------------------- |
-| Complexity |    30% | Share of Python files ranked A or B                 |
-| Coverage   |    25% | Share of source files with a matching test file     |
-| Bus factor |    20% | Knowledge concentration (bus factor 1 is riskiest)  |
-| Churn risk |    25% | Share of hot files that are **not** also complex    |
-
-The report also lists the **risk files**: files that are at the same
-time *hot* (changed at least half as often as the most-changed Python
-file) and *complex* (rank C or worse). Churn and complexity are each
-manageable on their own — their intersection is where refactoring pays
-off the most, and that is the metric the other commands cannot show
-individually.
-
-```bash
-# Rich summary in the terminal
-poetry run repohealth report
-
-# Full report as JSON, Markdown or HTML (raw content on stdout)
-poetry run repohealth report --format json
-poetry run repohealth report --format markdown
-
-# Write a self-contained HTML page to a file
-poetry run repohealth report --format html --output report.html
-```
+Runs all four analyses and consolidates them into a single health score
+from 0 to 100 with a letter grade (A-F), plus the list of risk files
+(see [How it works](#how-it-works)).
 
 Options:
 
@@ -184,9 +172,90 @@ Options:
 - `--since YYYY-MM-DD` / `--max-commits N` — passed through to the
   history analysis.
 - `--min-score N` — exit with code **2** when the health score is below
-  `N` (0–100). This makes `report` usable as a CI quality gate:
+  `N` (0-100).
 
-  ```bash
-  # Fail the pipeline when the repository health drops below 70
-  poetry run repohealth report . --min-score 70
-  ```
+## Using in CI
+
+`report --min-score` exits with code 2 when the score drops below the
+bar, failing the job:
+
+```yaml
+- name: Repository health gate
+  run: |
+    pip install repohealth
+    repohealth report . --min-score 70
+```
+
+To keep the full report as a build artifact:
+
+```yaml
+- name: Export health report
+  run: repohealth report . --format json --output health.json
+- uses: actions/upload-artifact@v4
+  with:
+    name: health-report
+    path: health.json
+```
+
+## How it works
+
+**Complexity** — every tracked Python file is parsed with
+[radon](https://radon.readthedocs.io/) (AST-based), which computes the
+cyclomatic complexity of each function and derives a per-file A-F rank
+from the average.
+
+**History** — [PyDriller](https://pydriller.readthedocs.io/) walks the
+commit history (skipping merge commits, following renames) to count how
+often each file changes and how the changes are distributed across
+authors. That yields the hotspots and the bus factor.
+
+**Test pairing** — a naming-convention heuristic matches each source
+file to a test file (`test_foo.py` / `foo_test.py`). Matching is done by
+file stem, so two sources with the same name can be satisfied by a single
+test file — those matches are flagged as ambiguous.
+
+**Score** — the health score is a weighted sum of four components:
+
+| Component  | Weight | What it measures                                   |
+| ---------- | -----: | -------------------------------------------------- |
+| Complexity |    30% | Share of Python files ranked A or B                |
+| Coverage   |    25% | Share of source files with a matching test file    |
+| Bus factor |    20% | Knowledge concentration (bus factor 1 is riskiest) |
+| Churn risk |    25% | Share of hot files that are **not** also complex   |
+
+The report also lists the **risk files**: files that are at the same time
+*hot* (changed at least half as often as the most-changed Python file)
+and *complex* (rank C or worse). Churn and complexity are each manageable
+on their own — their intersection is where refactoring pays off the most.
+
+## Limitations
+
+- The test heuristic checks that a plausibly named test file **exists**;
+  it is not real coverage measurement (use
+  [pytest-cov](https://pytest-cov.readthedocs.io/) for that).
+- Complexity analysis covers Python files only.
+- History analysis skips merge commits; renames are tracked, but heavily
+  rewritten files may count as new.
+
+## Roadmap
+
+- Complexity support for more languages.
+- Project config file for thresholds and weights.
+- Health score badge for READMEs.
+- Trend view: score evolution across the history.
+
+## Contributing
+
+PRs are welcome. Before opening one, please run the test suite and the
+linters:
+
+```bash
+poetry install
+poetry run pytest
+poetry run ruff check .
+poetry run ruff format --check .
+```
+
+## License
+
+[MIT](LICENSE)
