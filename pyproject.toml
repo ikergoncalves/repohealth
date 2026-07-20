@@ -23,6 +23,7 @@ packages = [{ include = "repohealth", from = "src" }]
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
 ruff = ">=0.8"
+pytest-cov = "^7.1.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -52,3 +53,11 @@ known-first-party = ["repohealth"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/repohealth"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
