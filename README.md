@@ -105,3 +105,38 @@ Options:
 
 Both commands print `no history to analyze` and exit successfully when
 the repository has no commits (or none match the filters).
+
+### `repohealth untested [PATH]`
+
+Lists the tracked Python source files that have no matching test file.
+`PATH` defaults to the current directory.
+
+```bash
+poetry run repohealth untested path/to/repo
+```
+
+Options:
+
+- `--all` — also show the source files that do have a matching test.
+
+A source file `foo.py` counts as **tested** when the repository tracks a
+test file following the common Python naming conventions:
+
+- `tests/**/test_foo.py` or `tests/**/foo_test.py` — any depth inside a
+  `tests/` directory;
+- `test_foo.py` or `foo_test.py` in the same directory as the source.
+
+Test files themselves (`test_*.py`, `*_test.py`, `conftest.py`),
+`__init__.py`, `__main__.py`, `setup.py` and non-Python files are
+excluded from the analysis.
+
+The pairing is done by file **stem**, not by full path: when two source
+files share the same name (say, two `utils.py` in different packages), a
+single `test_utils.py` marks both as tested. Those matches are shown as
+`tested*` — the asterisk flags a possible false positive.
+
+This is a **static heuristic**: it only checks that a plausibly named
+test file exists, not that the code is actually executed by tests. It
+points out structural gaps and does not replace real coverage
+measurement (e.g. [pytest-cov](https://pytest-cov.readthedocs.io/)).
+The command always exits with code 0 when the analysis runs.
