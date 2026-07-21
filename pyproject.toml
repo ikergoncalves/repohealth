@@ -1,6 +1,6 @@
 [project]
 name = "repohealth"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI tool that analyzes any Git repository's health"
 authors = [{ name = "ikergoncalves", email = "ikercurso@gmail.com" }]
 license = "MIT"
