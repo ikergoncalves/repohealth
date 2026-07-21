@@ -13,9 +13,22 @@ from repohealth.core.health import HealthReport
 
 _TOP_FILES = 5
 
+_WEIGHT_KEY_BY_COMPONENT = {
+    "Complexity": "complexity",
+    "Coverage": "coverage",
+    "Bus factor": "bus_factor",
+    "Churn risk": "churn_risk",
+}
+
 
 def to_json(report: HealthReport) -> str:
-    """Serialize the full report as a stable, indented JSON document."""
+    """Serialize the full report as a stable, indented JSON document.
+
+    The ``config`` block exposes the effective configuration the score
+    was computed with: the component weights, the exclude patterns and
+    where they came from (``defaults``, ``.repohealth.toml`` or
+    ``pyproject.toml``).
+    """
     payload = {
         "version": __version__,
         "generated_at": report.generated_at.isoformat(),
@@ -23,6 +36,14 @@ def to_json(report: HealthReport) -> str:
         "repo_path": report.repo_path.as_posix(),
         "score": round(report.score, 2),
         "grade": report.grade,
+        "config": {
+            "source": report.config_source,
+            "weights": {
+                _WEIGHT_KEY_BY_COMPONENT[component.name]: component.weight
+                for component in report.components
+            },
+            "exclude": list(report.exclude),
+        },
         "components": [
             {
                 "name": component.name,

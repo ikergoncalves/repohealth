@@ -55,11 +55,12 @@ def rank_for(complexity: float) -> str:
     return cc_rank(complexity) if complexity > 0 else "A"
 
 
-def analyze_complexity(path: str | Path) -> ComplexityReport:
+def analyze_complexity(path: str | Path, exclude: tuple[str, ...] = ()) -> ComplexityReport:
     """Analyze the cyclomatic complexity of all tracked Python files.
 
     Args:
         path: Root directory of a Git working tree.
+        exclude: Gitignore-style patterns; matching files are ignored.
 
     Returns:
         A :class:`ComplexityReport` with per-file results sorted by
@@ -74,7 +75,9 @@ def analyze_complexity(path: str | Path) -> ComplexityReport:
     try:
         root = Path(repo.working_tree_dir).resolve()
         python_files = [
-            rel_path for rel_path in list_tracked_files(repo) if rel_path.suffix.lower() == ".py"
+            rel_path
+            for rel_path in list_tracked_files(repo, exclude)
+            if rel_path.suffix.lower() == ".py"
         ]
     finally:
         repo.close()

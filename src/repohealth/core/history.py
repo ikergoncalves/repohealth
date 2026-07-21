@@ -16,6 +16,7 @@ from pathlib import Path
 from pydriller import Repository
 from pydriller.domain.commit import Commit
 
+from repohealth.core.config import build_exclude_matcher
 from repohealth.core.repo_scanner import list_tracked_files, open_repository
 
 
@@ -63,6 +64,7 @@ def analyze_history(
     path: str | Path,
     since: datetime | None = None,
     max_commits: int | None = None,
+    exclude: tuple[str, ...] = (),
 ) -> HistoryReport:
     """Mine the Git history for file churn, ownership and bus factor.
 
@@ -73,10 +75,15 @@ def analyze_history(
     Authors are identified by normalized e-mail (lowercased, stripped)
     but reported by their most recent name.
 
+    Excluded files are invisible end to end: they never appear in
+    hotspots or ownership, and their changes do not count as file
+    changes for the bus factor or the author totals.
+
     Args:
         path: Root directory of a Git working tree.
         since: Only analyze commits from this date onwards.
         max_commits: Only analyze the N most recent commits.
+        exclude: Gitignore-style patterns; matching files are ignored.
 
     Returns:
         A :class:`HistoryReport`. For a repository without commits (or
@@ -90,9 +97,11 @@ def analyze_history(
     try:
         root = Path(repo.working_tree_dir).resolve()
         has_commits = repo.head.is_valid()
-        live_files = {rel_path.as_posix() for rel_path in list_tracked_files(repo)}
+        live_files = {rel_path.as_posix() for rel_path in list_tracked_files(repo, exclude)}
     finally:
         repo.close()
+
+    excluded = build_exclude_matcher(exclude) if exclude else None
 
     change_counts: Counter[str] = Counter()
     file_authors: defaultdict[str, Counter[str]] = defaultdict(Counter)
@@ -113,6 +122,8 @@ def analyze_history(
                     _migrate_rename(old, new, change_counts, file_authors, last_modified)
                 current = new if new is not None else old
                 if current is None:
+                    continue
+                if excluded is not None and excluded(Path(current)):
                     continue
                 change_counts[current] += 1
                 file_authors[current][email] += 1

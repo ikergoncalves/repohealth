@@ -11,6 +11,8 @@ from pathlib import Path
 
 from git import InvalidGitRepositoryError, NoSuchPathError, Repo
 
+from repohealth.core.config import build_exclude_matcher
+
 LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".py": "Python",
     ".js": "JavaScript",
@@ -97,9 +99,17 @@ def open_repository(path: str | Path) -> Repo:
     return repo
 
 
-def list_tracked_files(repo: Repo) -> list[Path]:
-    """List all files tracked in the Git index, relative to the repository root."""
-    return sorted(Path(entry_path) for entry_path, stage in repo.index.entries if stage == 0)
+def list_tracked_files(repo: Repo, exclude: tuple[str, ...] = ()) -> list[Path]:
+    """List the files tracked in the Git index, relative to the repository root.
+
+    Files matching any of the gitignore-style ``exclude`` patterns are
+    omitted; every analysis funnels its exclusion through this helper.
+    """
+    tracked = sorted(Path(entry_path) for entry_path, stage in repo.index.entries if stage == 0)
+    if not exclude:
+        return tracked
+    excluded = build_exclude_matcher(exclude)
+    return [path for path in tracked if not excluded(path)]
 
 
 def classify_language(path: Path) -> str:
@@ -120,11 +130,12 @@ def count_lines(file_path: Path) -> int | None:
     return len(text.splitlines())
 
 
-def scan_repository(path: str | Path) -> RepoReport:
+def scan_repository(path: str | Path, exclude: tuple[str, ...] = ()) -> RepoReport:
     """Scan a Git repository and aggregate its tracked files by language.
 
     Args:
         path: Root directory of a Git working tree.
+        exclude: Gitignore-style patterns; matching files are ignored.
 
     Returns:
         A :class:`RepoReport` with per-file and per-language statistics,
@@ -142,7 +153,7 @@ def scan_repository(path: str | Path) -> RepoReport:
                 language=classify_language(rel_path),
                 lines=count_lines(root / rel_path),
             )
-            for rel_path in list_tracked_files(repo)
+            for rel_path in list_tracked_files(repo, exclude)
         )
     finally:
         repo.close()

@@ -7,6 +7,7 @@ with a per-component breakdown and the list of risk files — files that
 are both frequently changed and complex.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +51,8 @@ class HealthReport:
 
     ``score`` is the weighted sum of the component scores and
     ``risk_files`` is sorted by ``change_count`` descending.
+    ``exclude`` and ``config_source`` record the effective configuration
+    the report was built with (the weights live in ``components``).
     """
 
     repo_path: Path
@@ -62,6 +65,8 @@ class HealthReport:
     complexity: ComplexityReport
     history: HistoryReport
     coverage: CoverageGapReport
+    exclude: tuple[str, ...] = ()
+    config_source: str = "defaults"
 
 
 def grade_for(score: float) -> str:
@@ -88,10 +93,23 @@ def bus_factor_score(bus_factor: int) -> float:
     return 100.0
 
 
+def default_weights() -> dict[str, float]:
+    """The built-in component weights keyed by configuration name."""
+    return {
+        "complexity": COMPLEXITY_WEIGHT,
+        "coverage": COVERAGE_WEIGHT,
+        "bus_factor": BUS_FACTOR_WEIGHT,
+        "churn_risk": CHURN_RISK_WEIGHT,
+    }
+
+
 def build_health_report(
     path: str | Path,
     since: datetime | None = None,
     max_commits: int | None = None,
+    exclude: tuple[str, ...] = (),
+    weights: Mapping[str, float] | None = None,
+    config_source: str = "defaults",
 ) -> HealthReport:
     """Run the four analyses and combine them into a health report.
 
@@ -99,6 +117,14 @@ def build_health_report(
         path: Root directory of a Git working tree.
         since: Only analyze commits from this date onwards.
         max_commits: Only analyze the N most recent commits.
+        exclude: Gitignore-style patterns passed through to the four
+            analyses; matching files are ignored everywhere.
+        weights: Component weights keyed by ``complexity``, ``coverage``,
+            ``bus_factor`` and ``churn_risk``; defaults to the built-in
+            weights. The weighted sum and the ``ComponentScore.weight``
+            values reflect the weights actually used.
+        config_source: Where the effective configuration came from,
+            recorded verbatim in the report.
 
     Returns:
         A :class:`HealthReport` with the weighted score, grade, component
@@ -107,16 +133,17 @@ def build_health_report(
     Raises:
         NotAGitRepositoryError: If ``path`` is not a usable Git repository.
     """
-    scan = scan_repository(path)
-    complexity = analyze_complexity(path)
-    history = analyze_history(path, since=since, max_commits=max_commits)
-    coverage = find_coverage_gaps(path)
+    effective = default_weights() if weights is None else dict(weights)
+    scan = scan_repository(path, exclude=exclude)
+    complexity = analyze_complexity(path, exclude=exclude)
+    history = analyze_history(path, since=since, max_commits=max_commits, exclude=exclude)
+    coverage = find_coverage_gaps(path, exclude=exclude)
 
-    churn_component, risk_files = _churn_risk(history, complexity)
+    churn_component, risk_files = _churn_risk(history, complexity, effective["churn_risk"])
     components = (
-        _complexity_component(complexity),
-        _coverage_component(coverage),
-        _bus_factor_component(history),
+        _complexity_component(complexity, effective["complexity"]),
+        _coverage_component(coverage, effective["coverage"]),
+        _bus_factor_component(history, effective["bus_factor"]),
         churn_component,
     )
     score = sum(component.score * component.weight for component in components)
@@ -131,24 +158,26 @@ def build_health_report(
         complexity=complexity,
         history=history,
         coverage=coverage,
+        exclude=exclude,
+        config_source=config_source,
     )
 
 
-def _complexity_component(report: ComplexityReport) -> ComponentScore:
+def _complexity_component(report: ComplexityReport, weight: float) -> ComponentScore:
     """Share of analyzed Python files ranked A or B; 100 without files."""
     total = report.analyzed_file_count
     if total == 0:
-        return ComponentScore("Complexity", 100.0, COMPLEXITY_WEIGHT, "no Python files analyzed")
+        return ComponentScore("Complexity", 100.0, weight, "no Python files analyzed")
     healthy = sum(1 for file in report.files if file.rank in HEALTHY_RANKS)
     return ComponentScore(
         name="Complexity",
         score=100.0 * healthy / total,
-        weight=COMPLEXITY_WEIGHT,
+        weight=weight,
         detail=f"{total - healthy} of {total} files rank C or worse",
     )
 
 
-def _coverage_component(report: CoverageGapReport) -> ComponentScore:
+def _coverage_component(report: CoverageGapReport, weight: float) -> ComponentScore:
     """The test pairing ratio scaled to 0-100."""
     if report.source_file_count == 0:
         detail = "no Python source files to analyze"
@@ -159,12 +188,12 @@ def _coverage_component(report: CoverageGapReport) -> ComponentScore:
     return ComponentScore(
         name="Coverage",
         score=100.0 * report.coverage_ratio,
-        weight=COVERAGE_WEIGHT,
+        weight=weight,
         detail=detail,
     )
 
 
-def _bus_factor_component(report: HistoryReport) -> ComponentScore:
+def _bus_factor_component(report: HistoryReport, weight: float) -> ComponentScore:
     """Knowledge concentration risk derived from the bus factor."""
     detail = (
         "no history to analyze"
@@ -174,13 +203,13 @@ def _bus_factor_component(report: HistoryReport) -> ComponentScore:
     return ComponentScore(
         name="Bus factor",
         score=bus_factor_score(report.bus_factor),
-        weight=BUS_FACTOR_WEIGHT,
+        weight=weight,
         detail=detail,
     )
 
 
 def _churn_risk(
-    history: HistoryReport, complexity: ComplexityReport
+    history: HistoryReport, complexity: ComplexityReport, weight: float
 ) -> tuple[ComponentScore, tuple[RiskFile, ...]]:
     """Score the overlap between hot files and complex files.
 
@@ -191,7 +220,7 @@ def _churn_risk(
     python_churn = [churn for churn in history.hotspots if churn.path.suffix.lower() == ".py"]
     if not python_churn:
         return (
-            ComponentScore("Churn risk", 100.0, CHURN_RISK_WEIGHT, "no Python files with churn"),
+            ComponentScore("Churn risk", 100.0, weight, "no Python files with churn"),
             (),
         )
 
@@ -215,7 +244,7 @@ def _churn_risk(
     component = ComponentScore(
         name="Churn risk",
         score=100.0 * (1 - len(risk_files) / len(hot)),
-        weight=CHURN_RISK_WEIGHT,
+        weight=weight,
         detail=f"{len(risk_files)} of {len(hot)} hot files are also complex",
     )
     return component, tuple(risk_files)

@@ -95,7 +95,7 @@ def _index_test_files(
     return by_stem, by_dir_and_stem
 
 
-def find_coverage_gaps(path: str | Path) -> CoverageGapReport:
+def find_coverage_gaps(path: str | Path, exclude: tuple[str, ...] = ()) -> CoverageGapReport:
     """Pair the tracked Python source files with their test files.
 
     A source file ``foo.py`` counts as tested when the repository tracks
@@ -106,6 +106,8 @@ def find_coverage_gaps(path: str | Path) -> CoverageGapReport:
 
     Args:
         path: Root directory of a Git working tree.
+        exclude: Gitignore-style patterns; matching files are invisible
+            to the pairing, both as sources and as tests.
 
     Returns:
         A :class:`CoverageGapReport` listing every source file with its
@@ -117,7 +119,7 @@ def find_coverage_gaps(path: str | Path) -> CoverageGapReport:
     repo = open_repository(path)
     try:
         root = Path(repo.working_tree_dir).resolve()
-        tracked = list_tracked_files(repo)
+        tracked = list_tracked_files(repo, exclude)
     finally:
         repo.close()
 
