@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Configuration file support: `.repohealth.toml` at the repository root
+  or a `[tool.repohealth]` section in `pyproject.toml` (the first found
+  wins), with fail-fast validation of unknown keys and invalid values.
+- `exclude` configuration key: gitignore-style patterns removed from
+  every analysis — scan, complexity, hotspots, ownership, bus factor
+  and test pairing.
+- `weights` configuration table to customize the health score component
+  weights (all four keys, summing to 1.0).
+- `min_score` and `complexity_threshold` configuration keys as file
+  defaults for the `report --min-score` and `complexity --threshold`
+  gates; explicit CLI flags still win.
+- `--no-config` flag on every command to ignore configuration files and
+  use the built-in defaults.
+- `config` block in `report --format json` exposing the effective
+  weights, exclude patterns and configuration source.
+
 ## [0.1.0] - 2026-07-20
 
 ### Added

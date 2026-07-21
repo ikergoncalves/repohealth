@@ -174,6 +174,61 @@ Options:
 - `--min-score N` — exit with code **2** when the health score is below
   `N` (0-100).
 
+## Configuration
+
+repohealth reads an optional configuration from the analyzed repository
+(the `PATH` argument, not the current directory). Two locations are
+supported — the first one found wins:
+
+1. `.repohealth.toml` at the repository root (the file's root table is
+   the configuration);
+2. the `[tool.repohealth]` section of `pyproject.toml`.
+
+Without either, the built-in defaults apply. Any command accepts
+`--no-config` to skip discovery and use the defaults — handy when
+debugging a broken configuration file.
+
+A complete `.repohealth.toml`:
+
+```toml
+# Gitignore-style patterns; matching files are invisible to every
+# analysis: scan, complexity, hotspots, ownership, bus factor and
+# test pairing.
+exclude = ["docs/", "*.gen.py", "src/legacy/**"]
+
+# Fail `report` with exit code 2 below this score (CI gate).
+min_score = 70
+
+# Fail `complexity` with exit code 2 at or worse than this rank.
+complexity_threshold = "C"
+
+# Component weights for the health score. All-or-nothing: give all
+# four keys or omit the table entirely. Must sum to 1.0.
+[weights]
+complexity = 0.30
+coverage = 0.25
+bus_factor = 0.20
+churn_risk = 0.25
+```
+
+| Key                    | Default              | Meaning                                            |
+| ---------------------- | -------------------- | -------------------------------------------------- |
+| `exclude`              | `[]`                 | Gitignore-style patterns removed from all analyses |
+| `min_score`            | none                 | Default `--min-score` gate for `report` (0-100)    |
+| `complexity_threshold` | none                 | Default `--threshold` gate for `complexity` (A-F)  |
+| `weights`              | `0.30/0.25/0.20/0.25` | Score weights: complexity/coverage/bus_factor/churn_risk |
+
+Precedence is **defaults < config file < explicit CLI flag**:
+`--min-score` and `--threshold` on the command line override the file;
+weights and excludes come only from the file (a `--exclude` flag is a
+possible future addition). Unknown keys and invalid values fail fast
+with a clear error instead of being silently ignored.
+
+`report --format json` includes a `config` block with the effective
+values used — the weights, the exclude patterns and their `source`
+(`".repohealth.toml"`, `"pyproject.toml"` or `"defaults"`) — so a score
+is always traceable to the configuration that produced it.
+
 ## Using in CI
 
 `report --min-score` exits with code 2 when the score drops below the
@@ -240,7 +295,7 @@ on their own — their intersection is where refactoring pays off the most.
 ## Roadmap
 
 - Complexity support for more languages.
-- Project config file for thresholds and weights.
+- `--exclude` flag to complement the config file patterns.
 - Health score badge for READMEs.
 - Trend view: score evolution across the history.
 
