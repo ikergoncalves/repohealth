@@ -23,6 +23,7 @@ from repohealth.core.complexity import (
     rank_for,
     repository_average_complexity,
 )
+from repohealth.core.config import ConfigError, RepohealthConfig, load_config
 from repohealth.core.coverage_gaps import (
     CoverageGapReport,
     SourceFileStatus,
@@ -49,6 +50,26 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+_NO_CONFIG_OPTION = typer.Option(
+    "--no-config", help="Ignore configuration files and use the built-in defaults."
+)
+
+
+def _load_config_or_exit(path: Path, no_config: bool) -> RepohealthConfig:
+    """Load the configuration for the repository at ``path``.
+
+    ``--no-config`` skips discovery entirely; an invalid configuration
+    file is rendered as the standard red error and exits with code 1.
+    """
+    if no_config:
+        return RepohealthConfig.default()
+    try:
+        return load_config(path)
+    except ConfigError as exc:
+        error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1) from exc
+
+
 @app.callback()
 def main(
     version: Annotated[
@@ -70,10 +91,12 @@ def scan(
         Path,
         typer.Argument(help="Path to a local Git repository."),
     ] = Path("."),
+    no_config: Annotated[bool, _NO_CONFIG_OPTION] = False,
 ) -> None:
     """Scan a Git repository and show tracked files grouped by language."""
+    config = _load_config_or_exit(path, no_config)
     try:
-        report = scan_repository(path)
+        report = scan_repository(path, exclude=config.exclude)
     except NotAGitRepositoryError as exc:
         error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1) from exc
@@ -130,10 +153,14 @@ def complexity(
         bool,
         typer.Option("--all", help="Show all files, ignoring --top."),
     ] = False,
+    no_config: Annotated[bool, _NO_CONFIG_OPTION] = False,
 ) -> None:
     """Analyze the cyclomatic complexity of the tracked Python files."""
+    config = _load_config_or_exit(path, no_config)
+    if threshold is None:
+        threshold = config.complexity_threshold
     try:
-        report = analyze_complexity(path)
+        report = analyze_complexity(path, exclude=config.exclude)
     except NotAGitRepositoryError as exc:
         error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1) from exc
@@ -172,11 +199,13 @@ def _parse_since(value: str | None) -> datetime | None:
 
 
 def _analyze_history_or_exit(
-    path: Path, since: str | None, max_commits: int | None
+    path: Path, since: str | None, max_commits: int | None, exclude: tuple[str, ...]
 ) -> HistoryReport:
     """Run the history analysis, translating known failures into exit codes."""
     try:
-        return analyze_history(path, since=_parse_since(since), max_commits=max_commits)
+        return analyze_history(
+            path, since=_parse_since(since), max_commits=max_commits, exclude=exclude
+        )
     except NotAGitRepositoryError as exc:
         error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1) from exc
@@ -211,9 +240,11 @@ def hotspots(
     ] = False,
     since: Annotated[str | None, _SINCE_OPTION] = None,
     max_commits: Annotated[int | None, _MAX_COMMITS_OPTION] = None,
+    no_config: Annotated[bool, _NO_CONFIG_OPTION] = False,
 ) -> None:
     """Show the files most frequently changed across the Git history."""
-    report = _analyze_history_or_exit(path, since, max_commits)
+    config = _load_config_or_exit(path, no_config)
+    report = _analyze_history_or_exit(path, since, max_commits, config.exclude)
     _exit_if_no_history(report)
     shown = report.hotspots if show_all else report.hotspots[:top]
     _render_hotspots_report(report, shown)
@@ -227,9 +258,11 @@ def busfactor(
     ] = Path("."),
     since: Annotated[str | None, _SINCE_OPTION] = None,
     max_commits: Annotated[int | None, _MAX_COMMITS_OPTION] = None,
+    no_config: Annotated[bool, _NO_CONFIG_OPTION] = False,
 ) -> None:
     """Show the bus factor: the fewest authors covering half of all changes."""
-    report = _analyze_history_or_exit(path, since, max_commits)
+    config = _load_config_or_exit(path, no_config)
+    report = _analyze_history_or_exit(path, since, max_commits, config.exclude)
     _exit_if_no_history(report)
     _render_busfactor_report(report)
 
@@ -244,10 +277,12 @@ def untested(
         bool,
         typer.Option("--all", help="Also show the source files that have a matching test."),
     ] = False,
+    no_config: Annotated[bool, _NO_CONFIG_OPTION] = False,
 ) -> None:
     """Show tracked Python source files without a matching test file."""
+    config = _load_config_or_exit(path, no_config)
     try:
-        report = find_coverage_gaps(path)
+        report = find_coverage_gaps(path, exclude=config.exclude)
     except NotAGitRepositoryError as exc:
         error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1) from exc
@@ -301,6 +336,7 @@ def report(
             help="Exit with code 2 if the health score is below this value (CI gate).",
         ),
     ] = None,
+    no_config: Annotated[bool, _NO_CONFIG_OPTION] = False,
 ) -> None:
     """Build the consolidated health report with a weighted 0-100 score."""
     if output_format is ReportFormat.terminal and output is not None:
@@ -309,9 +345,20 @@ def report(
         )
         raise typer.Exit(code=1)
 
+    config = _load_config_or_exit(path, no_config)
+    if min_score is None:  # an explicit CLI flag wins over the config file
+        min_score = config.min_score
+
     parsed_since = _parse_since(since)
     try:
-        health = build_health_report(path, since=parsed_since, max_commits=max_commits)
+        health = build_health_report(
+            path,
+            since=parsed_since,
+            max_commits=max_commits,
+            exclude=config.exclude,
+            weights=config.weights,
+            config_source=config.source,
+        )
     except NotAGitRepositoryError as exc:
         error_console.print(f"[bold red]Error:[/bold red] [red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1) from exc
